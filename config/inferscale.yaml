@@ -1,0 +1,27 @@
+# InferScale configuration.
+# Every value can be overridden with an env var: INFERSCALE_<SECTION>__<KEY>
+# e.g. INFERSCALE_GATEWAY__WORKER_URL=http://worker:9001
+
+gateway:
+  host: 0.0.0.0
+  port: 8000
+  worker_url: http://localhost:9001
+  connect_timeout_s: 5.0
+  request_timeout_s: 60.0
+
+worker:
+  host: 0.0.0.0
+  port: 9001
+  model_name: mock-model
+  latency_ms: 200          # simulated time to first token
+  tokens_per_sec: 50.0     # simulated generation speed
+  failure_rate: 0.0        # probability [0, 1] that a request fails
+  default_max_tokens: 64   # completion length when the request sets no max_tokens
+  seed: null               # set an int for deterministic output
+
+logging:
+  level: INFO
+
+models:
+  - id: mock-model
+    owned_by: inferscale

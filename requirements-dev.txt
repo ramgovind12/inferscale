@@ -1,0 +1,8 @@
+-r requirements.txt
+-e .
+pytest>=8.0
+pytest-asyncio>=0.23
+ruff>=0.5
+mypy>=1.10
+types-PyYAML
+openai>=1.30

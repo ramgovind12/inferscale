@@ -1,35 +1,135 @@
-from typing import Literal, Optional
-from pydantic import BaseModel, Field
+"""OpenAI-compatible request/response schemas, plus InferScale metadata."""
 
-class UsageSchema(BaseModel):
-    """Schema for usage data."""
+from typing import Any, Literal
 
-    model: str = Field(..., description="The model used for inference.")
-    prompt_tokens: int = Field(..., description="The number of tokens in the prompt.")
-    completion_tokens: int = Field(..., description="The number of tokens in the completion.")
-    total_tokens: int = Field(..., description="The total number of tokens used.")
+from pydantic import BaseModel, ConfigDict, Field
 
-class InferenceRequestSchema(BaseModel):
-    """Schema for an inference request."""
+Role = Literal["system", "user", "assistant", "tool", "developer"]
+FinishReason = Literal["stop", "length", "tool_calls", "content_filter"]
+Priority = Literal["high", "normal", "low"]
 
-    request_id: str = Field(..., description="Unique identifier for the inference request.")
-    model: str = Field(..., description="The model to be used for inference.")
-    prompt: str = Field(..., description="The input prompt for the model.")
-    max_tokens: Optional[int] = Field(None, description="The maximum number of tokens to generate.")
-    temperature: Optional[float] = Field(None, description="Sampling temperature for randomness.")
-    top_p: Optional[float] = Field(None, description="Nucleus sampling parameter.")
-    n: Optional[int] = Field(None, description="Number of completions to generate.")
-    stream: Optional[bool] = Field(False, description="Whether to stream the output or not.")
-    stop: Optional[list[str]] = Field(None, description="List of stop sequences for generation.")
-    presence_penalty: Optional[float] = Field(None, description="Penalty for new tokens based on their presence in the text so far.")
-    frequency_penalty: Optional[float] = Field(None, description="Penalty for new tokens based on their frequency in the text so far.")
+# Fields that belong to InferScale, not to the OpenAI API. Stripped before forwarding.
+INFERSCALE_FIELDS = frozenset({"priority", "request_id"})
 
-class InferenceResponseSchema(BaseModel):
-    """Schema for an inference response."""
 
-    id: str = Field(..., description="Unique identifier for the inference request.")
-    object: Literal["inference"] = Field(..., description="Type of the object returned.")
-    created: int = Field(..., description="Timestamp of when the inference was created.")
-    model: str = Field(..., description="The model used for inference.")
-    choices: list[dict] = Field(..., description="List of choices returned by the model.")
-    usage: UsageSchema = Field(..., description="Usage data for the inference request.")
+class Message(BaseModel):
+    """A single chat message."""
+
+    model_config = ConfigDict(extra="allow")
+
+    role: Role
+    content: str | list[dict[str, Any]] | None = None
+    name: str | None = None
+
+    def text(self) -> str:
+        """Plain-text content, flattening multi-part content."""
+        if self.content is None:
+            return ""
+        if isinstance(self.content, str):
+            return self.content
+        return " ".join(str(p.get("text", "")) for p in self.content if isinstance(p, dict))
+
+
+class StreamOptions(BaseModel):
+    include_usage: bool = False
+
+
+class ChatCompletionRequest(BaseModel):
+    """Body of POST /v1/chat/completions."""
+
+    # Unknown OpenAI fields (tools, response_format, seed, ...) pass through to the worker.
+    model_config = ConfigDict(extra="allow")
+
+    model: str = Field(..., min_length=1)
+    messages: list[Message] = Field(..., min_length=1)
+    max_tokens: int | None = Field(None, ge=1)
+    max_completion_tokens: int | None = Field(None, ge=1)
+    temperature: float | None = Field(None, ge=0, le=2)
+    top_p: float | None = Field(None, ge=0, le=1)
+    n: int = Field(1, ge=1)
+    stream: bool = False
+    stream_options: StreamOptions | None = None
+    stop: str | list[str] | None = None
+    presence_penalty: float | None = Field(None, ge=-2, le=2)
+    frequency_penalty: float | None = Field(None, ge=-2, le=2)
+    user: str | None = None
+
+    # InferScale metadata
+    priority: Priority = "normal"
+    request_id: str | None = None
+
+    def token_limit(self) -> int | None:
+        return self.max_completion_tokens or self.max_tokens
+
+    def to_upstream(self) -> dict[str, Any]:
+        """Payload to send to a worker: OpenAI fields only."""
+        return self.model_dump(exclude_none=True, exclude=set(INFERSCALE_FIELDS))
+
+
+class Usage(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class AssistantMessage(BaseModel):
+    role: Literal["assistant"] = "assistant"
+    content: str | None = None
+
+
+class Choice(BaseModel):
+    index: int
+    message: AssistantMessage
+    finish_reason: FinishReason | None = None
+
+
+class ChatCompletionResponse(BaseModel):
+    id: str
+    object: Literal["chat.completion"] = "chat.completion"
+    created: int
+    model: str
+    choices: list[Choice]
+    usage: Usage
+
+
+class DeltaMessage(BaseModel):
+    role: Literal["assistant"] | None = None
+    content: str | None = None
+
+
+class ChunkChoice(BaseModel):
+    index: int
+    delta: DeltaMessage
+    finish_reason: FinishReason | None = None
+
+
+class ChatCompletionChunk(BaseModel):
+    id: str
+    object: Literal["chat.completion.chunk"] = "chat.completion.chunk"
+    created: int
+    model: str
+    choices: list[ChunkChoice]
+    usage: Usage | None = None
+
+
+class ModelCard(BaseModel):
+    id: str
+    object: Literal["model"] = "model"
+    created: int = 0
+    owned_by: str = "inferscale"
+
+
+class ModelList(BaseModel):
+    object: Literal["list"] = "list"
+    data: list[ModelCard]
+
+
+class ErrorDetail(BaseModel):
+    message: str
+    type: str
+    param: str | None = None
+    code: str | None = None
+
+
+class ErrorResponse(BaseModel):
+    error: ErrorDetail
