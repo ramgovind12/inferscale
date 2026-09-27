@@ -1,0 +1,35 @@
+name: inferscale
+
+x-healthcheck: &healthcheck
+  interval: 5s
+  timeout: 3s
+  retries: 10
+  start_period: 5s
+
+services:
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.worker
+    environment:
+      INFERSCALE_WORKER__MODEL_NAME: mock-model
+    ports:
+      - "9001:9001"
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/health')"]
+
+  gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.gateway
+    environment:
+      INFERSCALE_GATEWAY__WORKER_URL: http://worker:9001
+    ports:
+      - "8000:8000"
+    depends_on:
+      worker:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]

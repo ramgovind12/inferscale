@@ -5,7 +5,7 @@
 gateway:
   host: 0.0.0.0
   port: 8000
-  worker_url: http://localhost:9001
+  worker_url: http://127.0.0.1:9001
   connect_timeout_s: 5.0
   request_timeout_s: 60.0
 

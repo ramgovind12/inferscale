@@ -19,7 +19,7 @@ class GatewaySettings(BaseModel):
 
     host: str = "0.0.0.0"
     port: int = 8000
-    worker_url: str = "http://localhost:9001"
+    worker_url: str = "http://127.0.0.1:9001"
     connect_timeout_s: float = Field(5.0, gt=0)
     request_timeout_s: float = Field(60.0, gt=0)
 
